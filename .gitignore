@@ -1,0 +1,7 @@
+# OS specific files
+.DS_Store
+
+# Temporary files
+/tmp/cryo.pid
+*.log
+*.tmp

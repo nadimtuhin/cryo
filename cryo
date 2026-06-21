@@ -1,0 +1,248 @@
+#!/opt/homebrew/bin/bash
+# cryo — dynamically renice CPU and memory hogs (long-running watcher)
+
+set -euo pipefail
+
+NICE_HIGH=19
+HIGH_THRESH=50
+NICE_LOW=10
+THRESHOLD=5.0
+MEM_THRESHOLD=5.0
+INTERVAL=60
+TOP=0
+ONCE=false
+DRY_RUN=false
+PIDFILE="/tmp/cryo.pid"
+ESLINT_MAX_AGE=600
+PUPPETEER_MAX_AGE=600
+VITEST_MAX_AGE=300
+CLAUDE_SNAPSHOT_MAX_AGE=300
+
+DENYLIST=(WindowServer kernel_task launchd cryo)
+
+# ANSI
+RESET='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
+RED='\033[1;31m'; YELLOW='\033[33m'; CYAN='\033[36m'; BYELLOW='\033[1;33m'
+
+die() { echo "cryo: $*" >&2; exit 1; }
+is_numeric() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+
+usage() {
+  echo "Usage: cryo [--once] [--dry-run] [--interval N] [--threshold N] [--mem-threshold N] [--top N]"
+  exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --once)           ONCE=true ;;
+    --dry-run)        DRY_RUN=true ;;
+    --interval)       [[ $# -ge 2 ]] || die "--interval requires a value"; INTERVAL="$2"; shift ;;
+    --threshold)      [[ $# -ge 2 ]] || die "--threshold requires a value"; THRESHOLD="$2"; shift ;;
+    --mem-threshold)  [[ $# -ge 2 ]] || die "--mem-threshold requires a value"; MEM_THRESHOLD="$2"; shift ;;
+    --top)            [[ $# -ge 2 ]] || die "--top requires a value"; TOP="$2"; shift ;;
+    --eslint-max-age)    [[ $# -ge 2 ]] || die "--eslint-max-age requires a value";    ESLINT_MAX_AGE="$2";    shift ;;
+    --puppeteer-max-age) [[ $# -ge 2 ]] || die "--puppeteer-max-age requires a value"; PUPPETEER_MAX_AGE="$2"; shift ;;
+    --vitest-max-age)         [[ $# -ge 2 ]] || die "--vitest-max-age requires a value";         VITEST_MAX_AGE="$2";         shift ;;
+    --claude-snapshot-max-age) [[ $# -ge 2 ]] || die "--claude-snapshot-max-age requires a value"; CLAUDE_SNAPSHOT_MAX_AGE="$2"; shift ;;
+    --kill)           if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+                        kill "$(cat "$PIDFILE")" && echo "cryo stopped." || die "failed to kill cryo"
+                      else
+                        die "cryo not running"
+                      fi
+                      exit 0 ;;
+    -h|--help)        usage ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+is_numeric "$THRESHOLD"     || die "--threshold must be a number, got: $THRESHOLD"
+is_numeric "$MEM_THRESHOLD" || die "--mem-threshold must be a number, got: $MEM_THRESHOLD"
+is_numeric "$INTERVAL"      || die "--interval must be a number, got: $INTERVAL"
+
+THRESHOLD=$(awk    "BEGIN { t=$THRESHOLD;     print (t<0)?0:t }")
+MEM_THRESHOLD=$(awk "BEGIN { t=$MEM_THRESHOLD; print (t<0)?0:t }")
+
+set -o noclobber
+if ! echo $$ > "$PIDFILE" 2>/dev/null; then
+  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    die "already running (pid $(cat "$PIDFILE"))"
+  fi
+  set +o noclobber; echo $$ > "$PIDFILE"; set -o noclobber
+fi
+set +o noclobber
+
+SLEEP_PID=""
+trap 'kill "$SLEEP_PID" 2>/dev/null || true; rm -f "$PIDFILE"; echo; echo "cryo stopped."; exit 0' INT TERM EXIT
+
+is_denylisted() {
+  local comm="$1"
+  for entry in "${DENYLIST[@]}"; do [[ "$comm" == "$entry" ]] && return 0; done
+  return 1
+}
+
+display_name() {
+  local comm="$1" app binary result
+  if [[ "$comm" == *".app/"* ]]; then
+    app=$(sed 's|.*/\([^/]*\.app\)/.*|\1|' <<< "$comm")
+    binary=$(basename "$comm")
+    [[ "${app%.app}" == "$binary" ]] && result="$app" || result="$app/$binary"
+  else
+    result=$(basename "$comm")
+  fi
+  printf '%s' "$result"
+}
+
+sep() {
+  printf " ${DIM}%s${RESET}\n" "$(printf '─%.0s' {1..66})"
+}
+
+render_row() {
+  local pid="$1" comm="$2" cpu="$3" mem="$4" nice="$5" reason="$6"
+  local ind color
+  case "$reason" in
+    cpu|both)
+      if awk "BEGIN{exit !($cpu >= $HIGH_THRESH)}"; then
+        ind="●"; color="$RED"
+      else
+        ind="▲"; color="$YELLOW"
+      fi ;;
+    mem)
+      ind="○"; color="$CYAN" ;;
+  esac
+  local name; name=$(display_name "$comm")
+  printf "  ${color}${ind} ${name} ${DIM}(${pid})${RESET}\n"
+  printf "  ${DIM}└${RESET}%27s  ${color}%5.1f%%${RESET}  ${CYAN}%5.1f%%${RESET}   ${DIM}%+3d${RESET}\n" \
+    "" "$cpu" "$mem" "$nice"
+}
+
+# kill_stale_procs LABEL PATTERN MAX_AGE
+# Kills processes matching PATTERN (awk regex on full command) that are orphaned or older than MAX_AGE seconds.
+kill_stale_procs() {
+  local label="$1" pattern="$2" max_age="$3" count=0
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    local etime_str; etime_str=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ') || true
+    [[ -z "$etime_str" ]] && continue
+    local elapsed; elapsed=$(awk -v e="$etime_str" 'BEGIN {
+      n=split(e,p,"-"); days=(n>1)?p[1]+0:0; rest=(n>1)?p[2]:p[1]
+      m=split(rest,q,":"); sec=days*86400
+      if(m==3) sec+=q[1]*3600+q[2]*60+q[3]
+      else if(m==2) sec+=q[1]*60+q[2]
+      else sec+=q[1]
+      print int(sec)
+    }')
+    [[ "$elapsed" =~ ^[0-9]+$ ]] || continue
+    local ppid; ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') || true
+    local parent_dead=false
+    if [[ -n "$ppid" ]] && ! kill -0 "$ppid" 2>/dev/null; then parent_dead=true; fi
+    local stale=false
+    if [[ "$elapsed" -ge "$max_age" ]]; then stale=true; fi
+    if $parent_dead || $stale; then
+      local reason="orphan"
+      if $stale; then reason="stale(${elapsed}s)"; fi
+      if $DRY_RUN; then
+        printf "  ${BYELLOW}[DRY RUN]${RESET} would kill %s pid %s (%s)\n" "$label" "$pid" "$reason"
+      else
+        if kill "$pid" 2>/dev/null; then (( count++ )) || true; fi
+      fi
+    fi
+  done < <(pgrep -f "$pattern" 2>/dev/null || true)
+  if [[ "$count" -gt 0 ]]; then
+    printf "  ${RED}✖${RESET} killed %d stale/orphan %s worker(s)\n" "$count" "$label"
+  fi
+}
+
+kill_orphan_workers() {
+  kill_stale_procs "eslint"           "eslint\\.js"                  "$ESLINT_MAX_AGE"
+  kill_stale_procs "puppeteer"        "chrome.*--headless|puppeteer" "$PUPPETEER_MAX_AGE"
+  kill_stale_procs "vitest"           "vitest"                       "$VITEST_MAX_AGE"
+  kill_stale_procs "claude-snapshot"  "shell-snapshots/snapshot-"    "$CLAUDE_SNAPSHOT_MAX_AGE"
+}
+
+renice_targets() {
+  local ts; ts=$(date '+%H:%M:%S')
+  declare -A pid_cpu pid_mem pid_comm pid_reason
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local pid cpu comm; read -r pid cpu comm <<< "$line"
+    is_denylisted "$comm" && continue
+    pid_cpu["$pid"]="$cpu"; pid_mem["$pid"]="0"
+    pid_comm["$pid"]="$comm"; pid_reason["$pid"]="cpu"
+  done < <(ps -rAo pid,pcpu,user,comm | awk -v user="$USER" -v thresh="$THRESHOLD" \
+    'NR>1 && $3==user && $2+0>=thresh {print $1, $2, $4}')
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local pid mem comm; read -r pid mem comm <<< "$line"
+    is_denylisted "$comm" && continue
+    if [[ -n "${pid_cpu["$pid"]:-}" ]]; then
+      pid_mem["$pid"]="$mem"; pid_reason["$pid"]="both"
+    else
+      pid_cpu["$pid"]="0"; pid_mem["$pid"]="$mem"
+      pid_comm["$pid"]="$comm"; pid_reason["$pid"]="mem"
+    fi
+  done < <(ps -mAo pid,pmem,user,comm | awk -v user="$USER" -v thresh="$MEM_THRESHOLD" \
+    'NR>1 && $3==user && $2+0>=thresh {print $1, $2, $4}')
+
+  local sorted_pids=()
+  while IFS= read -r pid; do
+    if [[ -n "${pid_cpu["$pid"]:-}" ]]; then
+      sorted_pids+=("$pid")
+    fi
+  done < <(
+    for pid in "${!pid_cpu[@]}"; do
+      echo "${pid_cpu[$pid]} ${pid_mem[$pid]} $pid ${pid_reason[$pid]}"
+    done | sort -k4,4 -k1,1rn -k2,2rn | awk '{print $3}'
+  )
+
+  printf '\033[H\033[2J'
+
+  local badge=""
+  $DRY_RUN && badge="  ${BYELLOW}[DRY RUN]${RESET}"
+  printf " ${BOLD}cryo${RESET}  %s  ⟳ %ss  cpu≥%s%%  mem≥%s%%%s\n" \
+    "$ts" "$INTERVAL" "$THRESHOLD" "$MEM_THRESHOLD" "$badge"
+  sep
+  printf "  ${DIM}PROCESS (PID)                  CPU%%    MEM%%  NICE${RESET}\n"
+  sep
+
+  local count=0 reniced=0
+  for pid in "${sorted_pids[@]}"; do
+    [[ "$TOP" -gt 0 && "$count" -ge "$TOP" ]] && break
+    local cpu="${pid_cpu[$pid]}" mem="${pid_mem[$pid]}"
+    local comm="${pid_comm[$pid]}" reason="${pid_reason[$pid]}"
+
+    local nice_level=$NICE_LOW
+    awk "BEGIN{exit !($cpu >= $HIGH_THRESH)}" && nice_level=$NICE_HIGH
+
+    if ! $DRY_RUN; then
+      renice -n "$nice_level" "$pid" 2>/dev/null || true
+    fi
+    render_row "$pid" "$comm" "$cpu" "$mem" "$nice_level" "$reason"
+    (( reniced++ )) || true
+    (( count++ )) || true
+  done
+
+  if [ "$reniced" -eq 0 ]; then
+    printf "  ${DIM}nothing to renice${RESET}\n"
+  else
+    sep
+    if $DRY_RUN; then
+      printf "  ${DIM}%d processes would throttle${RESET}\n" "$reniced"
+    else
+      printf "  ${DIM}%d processes throttled${RESET}\n" "$reniced"
+    fi
+  fi
+}
+
+kill_orphan_workers
+renice_targets
+$ONCE && exit 0
+while true; do
+  sleep "$INTERVAL" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID" 2>/dev/null || true
+  kill_orphan_workers
+  renice_targets
+done
