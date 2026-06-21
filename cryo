@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/bash
+#!/usr/bin/env bash
 # cryo — dynamically renice CPU and memory hogs (long-running watcher)
 # Version: 1.0.0
 
