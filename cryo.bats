@@ -134,9 +134,12 @@ setup_fake_eslint() {
   local script="$1"
   cat > "$script" << 'EOF'
 #!/usr/bin/env bash
-trap 'exit 0' TERM INT
+trap 'kill "$child" 2>/dev/null; exit 0' TERM INT
+# Detach from bats' stdout/stderr pipe so a leaked sleep can't hang the run
+exec >/dev/null 2>&1
 sleep 999 &
-wait $!
+child=$!
+wait "$child"
 EOF
   chmod +x "$script"
 }
@@ -195,9 +198,12 @@ setup_fake_snapshot() {
   local script="$1"
   cat > "$script" << 'EOF'
 #!/usr/bin/env bash
-trap 'exit 0' TERM INT
+trap 'kill "$child" 2>/dev/null; exit 0' TERM INT
+# Detach from bats' stdout/stderr pipe so a leaked sleep can't hang the run
+exec >/dev/null 2>&1
 sleep 999 &
-wait $!
+child=$!
+wait "$child"
 EOF
   chmod +x "$script"
 }
