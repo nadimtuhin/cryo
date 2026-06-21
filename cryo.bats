@@ -8,6 +8,12 @@ setup() {
 
 teardown() {
   rm -f /tmp/cryo.pid
+  # Aggressively clean up any leaked background processes
+  pkill -f "cryo --dry-run --interval 999" 2>/dev/null || true
+  pkill -f "eslint\.js\." 2>/dev/null || true
+  pkill -f "shell-snapshots/snapshot-" 2>/dev/null || true
+  # Give child sleeps a moment to die after their parents are killed
+  sleep 0.1 || true
 }
 
 @test "--once exits after one pass" {
@@ -39,9 +45,11 @@ teardown() {
 @test "second instance blocked by pidfile guard" {
   "$CRYO" --dry-run --interval 999 &
   BG_PID=$!
+  disown "$BG_PID" 2>/dev/null || true
   sleep 0.5
   run "$CRYO" --dry-run --once
-  kill "$BG_PID" 2>/dev/null; wait "$BG_PID" 2>/dev/null || true
+  kill "$BG_PID" 2>/dev/null
+  wait "$BG_PID" 2>/dev/null || true
   [[ "$output" == *"already running"* ]]
   [ "$status" -ne 0 ]
 }
@@ -126,7 +134,9 @@ setup_fake_eslint() {
   local script="$1"
   cat > "$script" << 'EOF'
 #!/usr/bin/env bash
-sleep 999
+trap 'exit 0' TERM INT
+sleep 999 &
+wait $!
 EOF
   chmod +x "$script"
 }
@@ -185,7 +195,9 @@ setup_fake_snapshot() {
   local script="$1"
   cat > "$script" << 'EOF'
 #!/usr/bin/env bash
-sleep 999
+trap 'exit 0' TERM INT
+sleep 999 &
+wait $!
 EOF
   chmod +x "$script"
 }
