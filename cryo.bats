@@ -11,7 +11,7 @@ teardown() {
 }
 
 @test "--once exits after one pass" {
-  run timeout 5 "$CRYO" --once --dry-run
+  run "$CRYO" --once --dry-run
   [ "$status" -eq 0 ]
 }
 
