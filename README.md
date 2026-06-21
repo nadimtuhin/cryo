@@ -28,8 +28,7 @@ nohup cryo > /tmp/cryo.log 2>&1 &
 ## Install
 
 ```bash
-curl -sL https://raw.githubusercontent.com/nadimtuhin/cryo/main/cryo -o /usr/local/bin/cryo
-chmod +x /usr/local/bin/cryo
+curl -fsSL https://raw.githubusercontent.com/nadimtuhin/cryo/main/install.sh | bash
 ```
 
 Requires Bash 4+. If you are on default macOS Bash (version 3), upgrade via Homebrew:

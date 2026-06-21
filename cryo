@@ -1,5 +1,6 @@
 #!/opt/homebrew/bin/bash
 # cryo — dynamically renice CPU and memory hogs (long-running watcher)
+# Version: 1.0.0
 
 set -euo pipefail
 
@@ -28,7 +29,7 @@ die() { echo "cryo: $*" >&2; exit 1; }
 is_numeric() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
 
 usage() {
-  echo "Usage: cryo [--once] [--dry-run] [--interval N] [--threshold N] [--mem-threshold N] [--top N]"
+  echo "Usage: cryo [--once] [--dry-run] [--interval N] [--threshold N] [--mem-threshold N] [--top N] [--version]"
   exit 0
 }
 
@@ -50,6 +51,7 @@ while [[ $# -gt 0 ]]; do
                         die "cryo not running"
                       fi
                       exit 0 ;;
+    --version)        echo "cryo version 1.0.0"; exit 0 ;;
     -h|--help)        usage ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
