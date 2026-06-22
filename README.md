@@ -85,17 +85,18 @@ On every interval, cryo:
 3. Automatically applies lower execution priorities to processes exceeding threshold values.
 4. Searches for orphaned dev workers and runs a cleanup cycle.
 
+Throttling is one-way: cryo can lower a process's priority but cannot raise it back without root, so a throttled process stays niced until it exits.
+
 ## Why use this?
 
 You don't always know when a build task or test runner will spin out of control. Instead of manually chasing down PIDs or running every task under `nice`, cryo watches your system and handles the spikes for you.
 
 ## Development
 
-Runs tests with Bats:
+Standalone test suite, no dependencies:
 
 ```bash
-brew install bats-core
-bats cryo.bats
+bash test_cryo.sh
 ```
 
 ## License

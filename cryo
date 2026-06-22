@@ -29,7 +29,26 @@ die() { echo "cryo: $*" >&2; exit 1; }
 is_numeric() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
 
 usage() {
-  echo "Usage: cryo [--once] [--dry-run] [--interval N] [--threshold N] [--mem-threshold N] [--top N] [--version]"
+  cat <<'EOF'
+Usage: cryo [options]
+
+  --once                        Run one pass and exit
+  --dry-run                     Preview changes without modifying processes
+  --interval N                  Seconds between passes (default 60)
+  --threshold N                 CPU % threshold to renice (default 5.0)
+  --mem-threshold N             Memory % threshold to renice (default 5.0)
+  --top N                       Limit display to top N resource users
+  --eslint-max-age N            Max eslint worker lifetime, seconds (default 600)
+  --puppeteer-max-age N         Max puppeteer/chrome worker lifetime (default 600)
+  --vitest-max-age N            Max vitest lifetime (default 300)
+  --claude-snapshot-max-age N   Max shell-snapshot lifetime (default 300)
+  --kill                        Stop the running cryo daemon
+  --version                     Print version and exit
+  -h, --help                    Show this help
+
+Note: throttling is one-way. cryo can lower a process's priority but cannot
+raise it back without root, so a throttled process stays niced until it exits.
+EOF
   exit 0
 }
 
