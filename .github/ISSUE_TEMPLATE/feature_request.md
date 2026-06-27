@@ -1,20 +1,11 @@
 ---
-name: Feature Request
-about: Suggest an idea or improvement for cryo
-title: '[Feature] '
+name: Feature request
+about: Propose a new flag, behaviour, or worker type to clean up
 labels: enhancement
-assignees: ''
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is.
-e.g. "I always have to manually... and it's tedious."
+**What problem does this solve?**
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+**Proposed behaviour**
 
-**Describe alternatives you've considered**
-Any alternative solutions or features you've considered.
-
-**Additional context**
-Add any other context, screenshots, or examples here.
+**Would you be willing to submit a PR?**

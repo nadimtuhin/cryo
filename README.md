@@ -2,6 +2,10 @@
 
 Automatically throttle runaway CPU and memory hogs on macOS and Linux.
 
+[![CI](https://github.com/nadimtuhin/cryo/actions/workflows/ci.yml/badge.svg)](https://github.com/nadimtuhin/cryo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/security-policy-blue.svg)](SECURITY.md)
+
 Leave cryo running in the background. If a process starts eating too much CPU or RAM, cryo drops its priority so your machine stays responsive. It also cleans up abandoned dev tools that hang around in the background.
 
 ## Features
