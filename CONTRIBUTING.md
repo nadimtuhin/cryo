@@ -16,16 +16,16 @@ dependencies beyond standard POSIX/bash utilities.
 
 ## Testing
 
-Tests use [bats-core](https://github.com/bats-core/bats-core).
+Standalone test suite, no external dependencies:
 
-Install bats:
+    bash test_cryo.sh
 
-    brew install bats-core        # macOS
-    sudo apt install bats         # Debian/Ubuntu
+Requires Bash 4+. On macOS the system bash is 3.2 — install via Homebrew and
+put it on PATH first:
 
-Run the test suite:
-
-    bats cryo.bats
+    brew install bash
+    export PATH="/opt/homebrew/bin:$PATH"
+    bash test_cryo.sh
 
 All tests must pass before a PR can be merged.
 

@@ -21,6 +21,9 @@ CLAUDE_SNAPSHOT_MAX_AGE=300
 
 DENYLIST=(WindowServer kernel_task launchd cryo)
 
+# Processes to hard-kill (not renice) when they appear as CPU hogs
+KILL_LIST=(contactsd AddressBookManager)
+
 # ANSI
 RESET='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
 RED='\033[1;31m'; YELLOW='\033[33m'; CYAN='\033[36m'; BYELLOW='\033[1;33m'
@@ -233,6 +236,23 @@ renice_targets() {
     [[ "$TOP" -gt 0 && "$count" -ge "$TOP" ]] && break
     local cpu="${pid_cpu[$pid]}" mem="${pid_mem[$pid]}"
     local comm="${pid_comm[$pid]}" reason="${pid_reason[$pid]}"
+
+    # Hard-kill processes in KILL_LIST instead of renicing
+    local in_kill_list=false
+    for kl_comm in "${KILL_LIST[@]}"; do
+      [[ "$comm" == "$kl_comm" ]] && { in_kill_list=true; break; }
+    done
+    if $in_kill_list; then
+      if $DRY_RUN; then
+        printf "  ${BYELLOW}[DRY RUN]${RESET} would kill %s (pid %s) cpu=%s%%\n" "$comm" "$pid" "$cpu"
+      else
+        if kill "$pid" 2>/dev/null; then
+          printf "  ${RED}✖${RESET} killed %s (pid %s) cpu=%s%%\n" "$comm" "$pid" "$cpu"
+        fi
+      fi
+      (( count++ )) || true
+      continue
+    fi
 
     local nice_level=$NICE_LOW
     awk "BEGIN{exit !($cpu >= $HIGH_THRESH)}" && nice_level=$NICE_HIGH

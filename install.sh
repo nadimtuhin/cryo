@@ -7,10 +7,16 @@
 #
 set -euo pipefail
 
-REPO_URL="https://github.com/nadimtuhin/cryo.git"
 RAW_URL="https://raw.githubusercontent.com/nadimtuhin/cryo/main"
 DEST_DIR="/usr/local/bin"
 DEST="$DEST_DIR/cryo"
+
+# Fall back to ~/.local/bin if /usr/local/bin isn't writable and we're not root
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$DEST_DIR" ]; then
+  DEST_DIR="$HOME/.local/bin"
+  DEST="$DEST_DIR/cryo"
+  mkdir -p "$DEST_DIR"
+fi
 
 # ── colors ───────────────────────────────────────────────
 RED='\033[0;31m'
@@ -23,15 +29,8 @@ c_bold()  { echo -e "${BOLD}$*${NC}"; }
 
 die() { c_red "error: $*"; exit 1; }
 
-# ── checks ───────────────────────────────────────────────
-check_env() {
-  if [ "$(id -u)" -ne 0 ] && [ ! -w "$DEST_DIR" ]; then
-    die "Write access to $DEST_DIR is required. Please run with sudo or as administrator."
-  fi
-}
-
 install() {
-  c_bold "Installing cryo..."
+  c_bold "Installing cryo to $DEST..."
   
   # Download from raw GitHub url
   local tmp
@@ -59,14 +58,12 @@ uninstall() {
 main() {
   case "${1:-}" in
     --uninstall|-u)
-      check_env
       uninstall
       ;;
     --help|-h)
       echo "Usage: install.sh [--uninstall]"
       ;;
     "")
-      check_env
       install
       ;;
     *)

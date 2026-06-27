@@ -69,10 +69,6 @@ t_help() {
 }
 
 t_unknown_flag() {
-  "$CRYO" --bogus 2>&1; [[ $? -ne 0 ]]
-  return 0  # always true — we just need non-zero exit
-}
-t_unknown_flag() {
   local status=0
   "$CRYO" --bogus 2>&1 || status=$?
   [[ $status -ne 0 ]]

@@ -99,6 +99,15 @@ Standalone test suite, no dependencies:
 bash test_cryo.sh
 ```
 
+On macOS the system bash is 3.2 — cryo requires bash 4+. Install via Homebrew
+and put it on PATH before running tests:
+
+```bash
+brew install bash
+export PATH="/opt/homebrew/bin:$PATH"
+bash test_cryo.sh
+```
+
 ## License
 
 MIT
