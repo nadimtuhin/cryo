@@ -5,3 +5,7 @@
 /tmp/cryo.pid
 *.log
 *.tmp
+node_modules
+.env
+dist
+build
