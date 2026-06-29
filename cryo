@@ -106,13 +106,16 @@ is_denylisted() {
 }
 
 display_name() {
-  local comm="$1" app binary result
+  local comm="$1" result
   if [[ "$comm" == *".app/"* ]]; then
-    app=$(sed 's|.*/\([^/]*\.app\)/.*|\1|' <<< "$comm")
-    binary=$(basename "$comm")
-    [[ "${app%.app}" == "$binary" ]] && result="$app" || result="$app/$binary"
+    local app="${comm##*/}"           # basename first
+    local apppart="${comm%/*.app/*}"  # path before last .app/...
+    apppart="${apppart##*/}.app"      # extract AppName.app
+    local binary="${comm##*/*.app/}"  # part after .app/
+    binary="${binary##*/}"            # basename of binary
+    [[ "${apppart%.app}" == "$binary" ]] && result="$apppart" || result="$apppart/$binary"
   else
-    result=$(basename "$comm")
+    result="${comm##*/}"
   fi
   printf '%s' "$result"
 }
@@ -122,11 +125,11 @@ sep() {
 }
 
 render_row() {
-  local pid="$1" comm="$2" cpu="$3" mem="$4" nice="$5" reason="$6"
+  local pid="$1" comm="$2" cpu="$3" mem="$4" nice="$5" reason="$6" ishigh="${7:-0}"
   local ind color
   case "$reason" in
     cpu|both)
-      if awk "BEGIN{exit !($cpu >= $HIGH_THRESH)}"; then
+      if [[ "$ishigh" == "1" ]]; then
         ind="●"; color="$RED"
       else
         ind="▲"; color="$YELLOW"
@@ -186,40 +189,40 @@ kill_orphan_workers() {
 
 renice_targets() {
   local ts; ts=$(date '+%H:%M:%S')
-  declare -A pid_cpu pid_mem pid_comm pid_reason
 
+  # Merge CPU + MEM ps output via awk (avoids bash 4 declare -A, works on macOS bash 3.2)
+  # Also pre-classify high/low threshold to avoid per-row awk fork
+  local merged_data
+  merged_data=$( (
+    ps -rAo pid,pcpu,user,comm | awk -v user="$USER" -v thresh="$THRESHOLD" \
+      'NR>1 && $3==user && $2+0>=thresh {print $1, "cpu", $2, "0", $4}'
+    ps -mAo pid,pmem,user,comm | awk -v user="$USER" -v thresh="$MEM_THRESHOLD" \
+      'NR>1 && $3==user && $2+0>=thresh {print $1, "mem", "0", $2, $4}'
+  ) | awk -v high="$HIGH_THRESH" '
+    {
+      pid=$1; type=$2; cpu=$3; mem=$4; comm=$5
+      if (!(pid in coms)) { coms[pid]=comm; cpus[pid]=0; mems[pid]=0; reasons[pid]="" }
+      if (type == "cpu") { cpus[pid]=cpu; reasons[pid]=(reasons[pid]=="" ? "cpu" : "both") }
+      if (type == "mem") { mems[pid]=mem; reasons[pid]=(reasons[pid]=="" ? "mem" : "both") }
+    }
+    END {
+      for (pid in coms) {
+        ishigh = (cpus[pid]+0 >= high+0) ? "1" : "0"
+        print cpus[pid], mems[pid], pid, reasons[pid], ishigh, coms[pid]
+      }
+    }
+  ' | sort -k1,1rn -k2,2rn )
+
+  # Load into parallel indexed arrays (bash 3 compatible)
+  local sorted_pids=() arr_cpu=() arr_mem=() arr_comm=() arr_reason=() arr_ishigh=()
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    local pid cpu comm; read -r pid cpu comm <<< "$line"
+    local cpu mem pid reason ishigh comm
+    read -r cpu mem pid reason ishigh comm <<< "$line"
     is_denylisted "$comm" && continue
-    pid_cpu["$pid"]="$cpu"; pid_mem["$pid"]="0"
-    pid_comm["$pid"]="$comm"; pid_reason["$pid"]="cpu"
-  done < <(ps -rAo pid,pcpu,user,comm | awk -v user="$USER" -v thresh="$THRESHOLD" \
-    'NR>1 && $3==user && $2+0>=thresh {print $1, $2, $4}')
-
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    local pid mem comm; read -r pid mem comm <<< "$line"
-    is_denylisted "$comm" && continue
-    if [[ -n "${pid_cpu["$pid"]:-}" ]]; then
-      pid_mem["$pid"]="$mem"; pid_reason["$pid"]="both"
-    else
-      pid_cpu["$pid"]="0"; pid_mem["$pid"]="$mem"
-      pid_comm["$pid"]="$comm"; pid_reason["$pid"]="mem"
-    fi
-  done < <(ps -mAo pid,pmem,user,comm | awk -v user="$USER" -v thresh="$MEM_THRESHOLD" \
-    'NR>1 && $3==user && $2+0>=thresh {print $1, $2, $4}')
-
-  local sorted_pids=()
-  while IFS= read -r pid; do
-    if [[ -n "${pid_cpu["$pid"]:-}" ]]; then
-      sorted_pids+=("$pid")
-    fi
-  done < <(
-    for pid in "${!pid_cpu[@]}"; do
-      echo "${pid_cpu[$pid]} ${pid_mem[$pid]} $pid ${pid_reason[$pid]}"
-    done | sort -k4,4 -k1,1rn -k2,2rn | awk '{print $3}'
-  )
+    sorted_pids+=("$pid"); arr_cpu+=("$cpu"); arr_mem+=("$mem")
+    arr_reason+=("$reason"); arr_ishigh+=("$ishigh"); arr_comm+=("$comm")
+  done <<< "$merged_data"
 
   printf '\033[H\033[2J'
 
@@ -232,10 +235,10 @@ renice_targets() {
   sep
 
   local count=0 reniced=0
-  for pid in "${sorted_pids[@]}"; do
+  for i in "${!sorted_pids[@]}"; do
     [[ "$TOP" -gt 0 && "$count" -ge "$TOP" ]] && break
-    local cpu="${pid_cpu[$pid]}" mem="${pid_mem[$pid]}"
-    local comm="${pid_comm[$pid]}" reason="${pid_reason[$pid]}"
+    local pid="${sorted_pids[$i]}" cpu="${arr_cpu[$i]}" mem="${arr_mem[$i]}"
+    local comm="${arr_comm[$i]}" reason="${arr_reason[$i]}" ishigh="${arr_ishigh[$i]}"
 
     # Hard-kill processes in KILL_LIST instead of renicing
     local in_kill_list=false
@@ -250,19 +253,19 @@ renice_targets() {
           printf "  ${RED}✖${RESET} killed %s (pid %s) cpu=%s%%\n" "$comm" "$pid" "$cpu"
         fi
       fi
-      (( count++ )) || true
+      count=$(( count + 1 ))
       continue
     fi
 
     local nice_level=$NICE_LOW
-    awk "BEGIN{exit !($cpu >= $HIGH_THRESH)}" && nice_level=$NICE_HIGH
+    [[ "$ishigh" == "1" ]] && nice_level=$NICE_HIGH
 
     if ! $DRY_RUN; then
       renice -n "$nice_level" "$pid" 2>/dev/null || true
     fi
-    render_row "$pid" "$comm" "$cpu" "$mem" "$nice_level" "$reason"
-    (( reniced++ )) || true
-    (( count++ )) || true
+    render_row "$pid" "$comm" "$cpu" "$mem" "$nice_level" "$reason" "$ishigh"
+    reniced=$(( reniced + 1 ))
+    count=$(( count + 1 ))
   done
 
   if [ "$reniced" -eq 0 ]; then

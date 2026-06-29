@@ -40,6 +40,71 @@ setup_fake_eslint() {
   chmod +x "$f"
 }
 
+setup_fake_contactsd() {
+  local f="$1"
+  # exec -a renames the process as seen by ps comm
+  printf '#!/usr/bin/env bash\ntrap "exit 0" TERM INT\nexec -a contactsd sleep 999\n' > "$f"
+  chmod +x "$f"
+}
+
+setup_fake_addressbook() {
+  local f="$1"
+  printf '#!/usr/bin/env bash\ntrap "exit 0" TERM INT\nexec -a AddressBookManager sleep 999\n' > "$f"
+  chmod +x "$f"
+}
+
+t_contactsd_dryrun_kills() {
+  local dir; dir=$(mktemp -d /tmp/cryo-test.XXXX)
+  local fake="$dir/contactsd"
+  setup_fake_contactsd "$fake"
+  "$fake" &
+  local cpid=$!
+  sleep 0.2
+  local out; out=$(output_of --dry-run --once --threshold 0 --mem-threshold 0)
+  kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null || true
+  rm -rf "$dir"
+  contains "$out" "would kill" && contains "$out" "contactsd"
+}
+
+t_contactsd_kills() {
+  local dir; dir=$(mktemp -d /tmp/cryo-test.XXXX)
+  local fake="$dir/contactsd"
+  setup_fake_contactsd "$fake"
+  "$fake" &
+  local cpid=$!
+  sleep 0.2
+  output_of --once --threshold 0 --mem-threshold 0 >/dev/null
+  wait "$cpid" 2>/dev/null || true
+  rm -rf "$dir"
+  ! kill -0 "$cpid" 2>/dev/null
+}
+
+t_addressbook_dryrun_kills() {
+  local dir; dir=$(mktemp -d /tmp/cryo-test.XXXX)
+  local fake="$dir/AddressBookManager"
+  setup_fake_addressbook "$fake"
+  "$fake" &
+  local apid=$!
+  sleep 0.2
+  local out; out=$(output_of --dry-run --once --threshold 0 --mem-threshold 0)
+  kill "$apid" 2>/dev/null; wait "$apid" 2>/dev/null || true
+  rm -rf "$dir"
+  contains "$out" "would kill" && contains "$out" "AddressBookManager"
+}
+
+t_addressbook_kills() {
+  local dir; dir=$(mktemp -d /tmp/cryo-test.XXXX)
+  local fake="$dir/AddressBookManager"
+  setup_fake_addressbook "$fake"
+  "$fake" &
+  local apid=$!
+  sleep 0.2
+  output_of --once --threshold 0 --mem-threshold 0 >/dev/null
+  wait "$apid" 2>/dev/null || true
+  rm -rf "$dir"
+  ! kill -0 "$apid" 2>/dev/null
+}
+
 setup_fake_snapshot() {
   local f="$1"
   printf '#!/usr/bin/env bash\ntrap "exit 0" TERM INT\nsleep 999 & wait $!\n' > "$f"
@@ -90,7 +155,7 @@ t_pidfile_cleaned() {
 }
 
 t_threshold_999_nothing() {
-  local out; out=$(output_of --threshold 999 --dry-run --once)
+  local out; out=$(output_of --threshold 999 --mem-threshold 999 --dry-run --once)
   contains "$out" "nothing to renice"
 }
 
@@ -290,6 +355,10 @@ TESTS=(
   t_snapshot_kills
   t_snapshot_kill_count
   t_snapshot_flag_accepted
+  t_contactsd_dryrun_kills
+  t_contactsd_kills
+  t_addressbook_dryrun_kills
+  t_addressbook_kills
 )
 
 echo "1..${#TESTS[@]}"
