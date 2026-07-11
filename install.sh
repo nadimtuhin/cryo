@@ -55,13 +55,59 @@ uninstall() {
   fi
 }
 
+PLIST_LABEL="com.nadimtuhin.cryo"
+PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
+LOG_PATH="$HOME/.local/logs/cryo.log"
+
+install_daemon() {
+  [ "$(uname)" = "Darwin" ] || die "daemon install only supports macOS (launchd)"
+  [ -x "$DEST" ] || die "cryo not installed at $DEST — run install.sh first"
+  mkdir -p "$(dirname "$LOG_PATH")" "$(dirname "$PLIST_PATH")"
+  cat > "$PLIST_PATH" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>$PLIST_LABEL</string>
+	<key>ProgramArguments</key><array><string>$DEST</string></array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>ProcessType</key><string>Background</string>
+	<key>StandardOutPath</key><string>$LOG_PATH</string>
+	<key>StandardErrorPath</key><string>$LOG_PATH</string>
+</dict>
+</plist>
+EOF
+  launchctl unload "$PLIST_PATH" 2>/dev/null || true
+  launchctl load "$PLIST_PATH" || die "launchctl load failed"
+  c_green "cryo daemon installed and running (launchd: $PLIST_LABEL)"
+  c_bold "Logs: $LOG_PATH"
+}
+
+uninstall_daemon() {
+  [ -f "$PLIST_PATH" ] || { echo "cryo daemon is not installed."; return; }
+  launchctl unload "$PLIST_PATH" 2>/dev/null || true
+  rm -f "$PLIST_PATH"
+  c_green "Removed cryo daemon ($PLIST_LABEL)"
+}
+
 main() {
   case "${1:-}" in
     --uninstall|-u)
       uninstall
       ;;
+    --daemon)
+      install_daemon
+      ;;
+    --uninstall-daemon)
+      uninstall_daemon
+      ;;
     --help|-h)
-      echo "Usage: install.sh [--uninstall]"
+      echo "Usage: install.sh [--uninstall|--daemon|--uninstall-daemon]"
+      echo "  (no args)          install cryo binary"
+      echo "  --uninstall        remove cryo binary"
+      echo "  --daemon           run cryo continuously via launchd (macOS, auto-restart)"
+      echo "  --uninstall-daemon stop and remove the launchd daemon"
       ;;
     "")
       install
