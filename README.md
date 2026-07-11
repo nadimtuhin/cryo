@@ -66,7 +66,7 @@ Logs to `~/.local/logs/cryo.log`.
 | `--puppeteer-max-age N` | 600 | Max lifetime for puppeteer/chrome workers |
 | `--vitest-max-age N` | 300 | Max lifetime for vitest processes |
 | `--claude-snapshot-max-age N` | 300 | Max lifetime for shell snapshot processes |
-| `--kill` | — | Stop cryo (unloads launchd job if daemon-installed via `--daemon`, else kills pidfile process) |
+| `--kill` | — | Stop cryo for this session (unloads launchd job if daemon-installed; comes back next login — use `./install.sh --uninstall-daemon` to remove permanently. Falls back to pidfile kill otherwise) |
 | `--help` | — | Show usage options |
 
 install.sh flags:
