@@ -45,7 +45,7 @@ Usage: cryo [options]
   --puppeteer-max-age N         Max puppeteer/chrome worker lifetime (default 600)
   --vitest-max-age N            Max vitest lifetime (default 300)
   --claude-snapshot-max-age N   Max shell-snapshot lifetime (default 300)
-  --kill                        Stop the running cryo daemon
+  --kill                        Stop cryo (unloads launchd job if daemon-installed, else pidfile kill)
   --version                     Print version and exit
   -h, --help                    Show this help
 
@@ -67,7 +67,10 @@ while [[ $# -gt 0 ]]; do
     --puppeteer-max-age) [[ $# -ge 2 ]] || die "--puppeteer-max-age requires a value"; PUPPETEER_MAX_AGE="$2"; shift ;;
     --vitest-max-age)         [[ $# -ge 2 ]] || die "--vitest-max-age requires a value";         VITEST_MAX_AGE="$2";         shift ;;
     --claude-snapshot-max-age) [[ $# -ge 2 ]] || die "--claude-snapshot-max-age requires a value"; CLAUDE_SNAPSHOT_MAX_AGE="$2"; shift ;;
-    --kill)           if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    --kill)           if launchctl list 2>/dev/null | grep -q "com.nadimtuhin.cryo"; then
+                        launchctl unload "$HOME/Library/LaunchAgents/com.nadimtuhin.cryo.plist" 2>/dev/null \
+                          && echo "cryo daemon (launchd) stopped." || die "failed to unload launchd job"
+                      elif [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
                         kill "$(cat "$PIDFILE")" && echo "cryo stopped." || die "failed to kill cryo"
                       else
                         die "cryo not running"
