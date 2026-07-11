@@ -25,7 +25,7 @@ cryo --once --dry-run
 # Run in the foreground
 cryo
 
-# Run as a background daemon
+# Run as a background daemon (manual)
 nohup cryo > /tmp/cryo.log 2>&1 &
 ```
 
@@ -40,6 +40,17 @@ Requires Bash 4+. If you are on default macOS Bash (version 3), upgrade via Home
 ```bash
 brew install bash
 ```
+
+### Run as a launchd service (macOS)
+
+Auto-starts at login and restarts if killed — no need to babysit a background process:
+
+```bash
+./install.sh --daemon             # install + start
+./install.sh --uninstall-daemon   # stop + remove
+```
+
+Logs to `~/.local/logs/cryo.log`.
 
 ## Configuration
 
@@ -57,6 +68,14 @@ brew install bash
 | `--claude-snapshot-max-age N` | 300 | Max lifetime for shell snapshot processes |
 | `--kill` | — | Stop the active daemon |
 | `--help` | — | Show usage options |
+
+install.sh flags:
+
+| Flag | Description |
+|------|-------------|
+| `--daemon` | Install + start cryo as a launchd auto-restart service (macOS) |
+| `--uninstall-daemon` | Stop and remove the launchd service |
+| `--uninstall` | Remove the cryo binary |
 
 ## Example output
 

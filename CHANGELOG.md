@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `install.sh --daemon` installs cryo as a launchd service (macOS) with auto-restart on crash/login
+- `install.sh --uninstall-daemon` stops and removes the launchd service
+- `KILL_LIST` extended with `AddressBookSourceSync`, `contactsdonationagent`
+
 ### Fixed
 - `install.sh` now falls back to `~/.local/bin` without requiring sudo when `/usr/local/bin` is not writable
 - Removed orphan `cryo.bats` (superseded by `test_cryo.sh`)
