@@ -22,7 +22,7 @@ CLAUDE_SNAPSHOT_MAX_AGE=300
 DENYLIST=(WindowServer kernel_task launchd cryo)
 
 # Processes to hard-kill (not renice) when they appear as CPU hogs
-KILL_LIST=(contactsd AddressBookManager)
+KILL_LIST=(contactsd AddressBookManager AddressBookSourceSync contactsdonationagent)
 
 # ANSI
 RESET='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
